@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: devpulse-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-devpulse}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpulse}
+      POSTGRES_DB: ${DB_NAME:-devpulse}
+    ports:
+      - "${DB_PORT:-5433}:5432"
+    volumes:
+      - devpulse_pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: devpulse-redis
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+
+volumes:
+  devpulse_pgdata:
