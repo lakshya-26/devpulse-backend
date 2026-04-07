@@ -1,9 +1,9 @@
-/**
- * Redis client URL for future caching (Step 15+).
- * @returns {string}
- */
-function getRedisUrl() {
-  return process.env.REDIS_URL || 'redis://127.0.0.1:6380';
-}
+const Redis = require('ioredis');
+const { redisUrl } = require('./env');
 
-module.exports = { getRedisUrl };
+const redis = new Redis(redisUrl);
+
+redis.on('connect', () => {});
+redis.on('error', () => {});
+
+module.exports = redis;

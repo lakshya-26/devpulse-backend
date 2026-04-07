@@ -33,6 +33,12 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 0,
         field: 'target_prs',
       },
+      targetCodingHours: {
+        type: DataTypes.DECIMAL(4, 1),
+        allowNull: false,
+        defaultValue: 0,
+        field: 'target_coding_hours',
+      },
       date: {
         type: DataTypes.DATE,
         allowNull: false,
