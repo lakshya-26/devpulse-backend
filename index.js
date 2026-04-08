@@ -9,6 +9,7 @@ const { registerRoutes } = require('./routes');
 const db = require('./models');
 const redis = require('./config/redis');
 const { errorHandler } = require('./middlewares/errorHandler');
+const { scheduleStreakJob } = require('./jobs/streakUpdater.job');
 
 const app = express();
 
@@ -50,6 +51,18 @@ async function main() {
 
   await db.sequelize.authenticate();
   console.log('Database: connected');
+
+  await db.sequelize.sync({ alter: true });
+
+  const streakJob = scheduleStreakJob();
+
+  if (nodeEnv === 'development') {
+    app.post('/dev/run-streak-job', async (req, res) => {
+      console.log('[DEV] Manually triggering streak job...');
+      await streakJob.runNow();
+      res.json({ message: 'Streak job completed — check console logs' });
+    });
+  }
 
   app.listen(port, () => {
     console.log(`Server: http://localhost:${port} (${nodeEnv})`);

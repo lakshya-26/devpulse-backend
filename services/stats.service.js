@@ -1,3 +1,4 @@
+const redis = require('../config/redis');
 const { User, Streak } = require('../models');
 const githubService = require('./github.service');
 const { CustomException } = require('../utils/errorHandler');
@@ -34,8 +35,9 @@ async function loadUserWithGithub(userId) {
 /**
  * @param {string} userId
  * @param {string} [rangeQuery]
+ * @param {import('express').Response|null} [res]
  */
-async function getCommitStats(userId, rangeQuery) {
+async function getCommitStats(userId, rangeQuery, res = null) {
   const { from, to, range } = resolveDateRange(rangeQuery);
   const user = await loadUserWithGithub(userId);
 
@@ -44,7 +46,7 @@ async function getCommitStats(userId, rangeQuery) {
     userId,
     from,
     to,
-    range
+    res
   );
 
   const byDate = {};
@@ -61,7 +63,7 @@ async function getCommitStats(userId, rangeQuery) {
     byRepoCount[c.repo] = (byRepoCount[c.repo] || 0) + 1;
   });
 
-  const repos = await githubService.getUserRepos(user.accessToken, userId);
+  const repos = await githubService.getUserRepos(user.accessToken, userId, res);
   const langByRepo = Object.fromEntries(repos.map((r) => [r.name, r.language]));
 
   let topRepo = null;
@@ -84,26 +86,31 @@ async function getCommitStats(userId, rangeQuery) {
 
 /**
  * @param {string} userId
+ * @param {import('express').Response|null} [res]
  */
-async function getLanguageStats(userId) {
+async function getLanguageStats(userId, res = null) {
   const user = await loadUserWithGithub(userId);
-  return githubService.getLanguageStats(user.accessToken, userId);
+  return githubService.getLanguageStats(user.accessToken, userId, res);
 }
 
 /**
  * @param {string} userId
  */
 async function refreshGithubCache(userId) {
-  await loadUserWithGithub(userId);
+  const user = await loadUserWithGithub(userId);
   await githubService.invalidateUserCache(userId);
+  if (user.username) {
+    await redis.del(`profile:${user.username}`);
+  }
   return { refreshed: true };
 }
 
 /**
  * @param {string} userId
  * @param {string} [rangeQuery]
+ * @param {import('express').Response|null} [res]
  */
-async function getPrStats(userId, rangeQuery) {
+async function getPrStats(userId, rangeQuery, res = null) {
   const { from, to, range } = resolveDateRange(rangeQuery);
   const user = await loadUserWithGithub(userId);
 
@@ -112,7 +119,7 @@ async function getPrStats(userId, rangeQuery) {
     userId,
     from,
     to,
-    range
+    res
   );
 
   const byDate = {};
@@ -135,21 +142,21 @@ async function getPrStats(userId, rangeQuery) {
 /**
  * @param {string} userId
  * @param {string|number} [daysQuery]
+ * @param {import('express').Response|null} [res]
  */
-async function getContributionsCalendar(userId, daysQuery) {
+async function getContributionsCalendar(userId, daysQuery, res = null) {
   const days = Math.min(366, Math.max(1, parseInt(String(daysQuery ?? '365'), 10) || 365));
   const to = new Date().toISOString();
   const from = new Date();
   from.setUTCDate(from.getUTCDate() - (days - 1));
 
   const user = await loadUserWithGithub(userId);
-  const contribScope = `d${days}`;
   const commits = await githubService.getAllCommitsByDateRange(
     user.accessToken,
     userId,
     from.toISOString(),
     to,
-    contribScope
+    res
   );
 
   const byDate = {};
@@ -164,14 +171,15 @@ async function getContributionsCalendar(userId, daysQuery) {
 /**
  * @param {string} userId
  * @param {string} [rangeQuery]
+ * @param {import('express').Response|null} [res]
  */
-async function getRepoStats(userId, rangeQuery) {
+async function getRepoStats(userId, rangeQuery, res = null) {
   const { from, to, range } = resolveDateRange(rangeQuery);
   const user = await loadUserWithGithub(userId);
 
   const [repos, commits] = await Promise.all([
-    githubService.getUserRepos(user.accessToken, userId),
-    githubService.getAllCommitsByDateRange(user.accessToken, userId, from, to, range),
+    githubService.getUserRepos(user.accessToken, userId, res),
+    githubService.getAllCommitsByDateRange(user.accessToken, userId, from, to, res),
   ]);
 
   const sparkTo = new Date().toISOString();
@@ -183,7 +191,7 @@ async function getRepoStats(userId, rangeQuery) {
     userId,
     sparkFrom.toISOString(),
     sparkTo,
-    'spark'
+    res
   );
 
   const byRepoCount = {};
@@ -223,8 +231,9 @@ async function getRepoStats(userId, rangeQuery) {
 /**
  * Refresh streak from GitHub commits and persist {@link Streak}.
  * @param {string} userId
+ * @param {import('express').Response|null} [res]
  */
-async function syncStreakFromGithub(userId) {
+async function syncStreakFromGithub(userId, res = null) {
   const user = await loadUserWithGithub(userId);
   const to = new Date().toISOString();
   const from = new Date();
@@ -235,7 +244,7 @@ async function syncStreakFromGithub(userId) {
     userId,
     from.toISOString(),
     to,
-    'streak'
+    res
   );
 
   const dateKeys = streakHelper.collectUtcDateKeys(commits.map((c) => c.date));

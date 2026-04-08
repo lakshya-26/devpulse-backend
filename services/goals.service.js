@@ -70,8 +70,8 @@ async function getTodayGoalWithProgress(userId) {
   const end = new Date().toISOString();
 
   const [commits, prs] = await Promise.all([
-    githubService.getAllCommitsByDateRange(user.accessToken, userId, start, end, 'goals-today'),
-    githubService.getAllPullRequestsInRange(user.accessToken, userId, start, end, 'goals-today'),
+    githubService.getAllCommitsByDateRange(user.accessToken, userId, start, end),
+    githubService.getAllPullRequestsInRange(user.accessToken, userId, start, end),
   ]);
 
   return {
@@ -109,10 +109,9 @@ async function getGoalsHistory(userId, daysQuery) {
   endDay.setUTCDate(endDay.getUTCDate() + 1);
   const toIso = endDay.toISOString();
 
-  const historyScope = `goals-history-${days}`;
   const [commits, prs] = await Promise.all([
-    githubService.getAllCommitsByDateRange(user.accessToken, userId, fromIso, toIso, historyScope),
-    githubService.getAllPullRequestsInRange(user.accessToken, userId, fromIso, toIso, historyScope),
+    githubService.getAllCommitsByDateRange(user.accessToken, userId, fromIso, toIso),
+    githubService.getAllPullRequestsInRange(user.accessToken, userId, fromIso, toIso),
   ]);
 
   const commitsByDate = {};
