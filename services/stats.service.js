@@ -5,12 +5,120 @@ const { CustomException } = require('../utils/errorHandler');
 const streakHelper = require('./streak.helper');
 
 const STREAK_LOOKBACK_DAYS = 400;
+const COMPARE_STATS_TTL_SEC = 60 * 60 * 24;
 
 const ALLOWED_RANGES = new Set(['7d', '30d', '90d']);
 
 /**
  * @param {string} [range]
  */
+/**
+ * Current window [now-days, now] and immediately prior window of equal length.
+ * @param {string} [rangeQuery]
+ */
+function resolveCompareWindows(rangeQuery) {
+  const key = ALLOWED_RANGES.has(rangeQuery) ? rangeQuery : '7d';
+  const days = key === '7d' ? 7 : key === '30d' ? 30 : 90;
+  const currentTo = new Date();
+  const currentFrom = new Date();
+  currentFrom.setDate(currentFrom.getDate() - days);
+  const previousTo = new Date(currentFrom);
+  const previousFrom = new Date(currentFrom);
+  previousFrom.setDate(previousFrom.getDate() - days);
+  return {
+    range: key,
+    current: { from: currentFrom.toISOString(), to: currentTo.toISOString() },
+    previous: { from: previousFrom.toISOString(), to: previousTo.toISOString() },
+  };
+}
+
+/**
+ * @param {number} curr
+ * @param {number} prev
+ */
+function pctChange(curr, prev) {
+  if (prev === 0) return curr === 0 ? 0 : 100;
+  return Math.round(((curr - prev) / prev) * 1000) / 10;
+}
+
+/**
+ * @param {string} accessToken
+ * @param {string} userId
+ * @param {{ from: string, to: string }} window
+ */
+async function aggregateCompareWindow(accessToken, userId, window) {
+  const [commits, prs] = await Promise.all([
+    githubService.getAllCommitsByDateRange(accessToken, userId, window.from, window.to, null),
+    githubService.getAllPullRequestsInRange(accessToken, userId, window.from, window.to, null),
+  ]);
+  const activeRepos = new Set(commits.map((c) => c.repo)).size;
+  return {
+    commits: commits.length,
+    prs: prs.length,
+    activeRepos,
+  };
+}
+
+/**
+ * @param {string} userId
+ * @param {string} [rangeQuery]
+ * @param {import('express').Response|null} [res]
+ */
+async function getCompareStats(userId, rangeQuery, res = null) {
+  const { range, current, previous } = resolveCompareWindows(rangeQuery);
+  const cacheKey = `stats:compare:${userId}:${range}`;
+
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      if (res) {
+        res.set('X-Cache', 'HIT');
+        res.set('X-Cache-Key', cacheKey);
+      }
+      return JSON.parse(cached);
+    }
+  } catch (e) {
+    console.error('Redis compare read:', e.message);
+  }
+
+  const user = await loadUserWithGithub(userId);
+  const [curAgg, prevAgg] = await Promise.all([
+    aggregateCompareWindow(user.accessToken, userId, current),
+    aggregateCompareWindow(user.accessToken, userId, previous),
+  ]);
+
+  const payload = {
+    range,
+    current: {
+      commits: curAgg.commits,
+      prs: curAgg.prs,
+      activeRepos: curAgg.activeRepos,
+    },
+    previous: {
+      commits: prevAgg.commits,
+      prs: prevAgg.prs,
+      activeRepos: prevAgg.activeRepos,
+    },
+    change: {
+      commits: pctChange(curAgg.commits, prevAgg.commits),
+      prs: pctChange(curAgg.prs, prevAgg.prs),
+      activeRepos: pctChange(curAgg.activeRepos, prevAgg.activeRepos),
+    },
+  };
+
+  try {
+    await redis.setex(cacheKey, COMPARE_STATS_TTL_SEC, JSON.stringify(payload));
+    if (res) {
+      res.set('X-Cache', 'MISS');
+      res.set('X-Cache-Key', cacheKey);
+    }
+  } catch (e) {
+    console.error('Redis compare write:', e.message);
+  }
+
+  return payload;
+}
+
 function resolveDateRange(range) {
   const key = ALLOWED_RANGES.has(range) ? range : '7d';
   const to = new Date().toISOString();
@@ -288,6 +396,7 @@ module.exports = {
   getPrStats,
   getContributionsCalendar,
   getRepoStats,
+  getCompareStats,
   syncStreakFromGithub,
   refreshGithubCache,
   resolveDateRange,

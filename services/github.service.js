@@ -1,8 +1,10 @@
 const axios = require('axios');
 const redis = require('../config/redis');
 const { githubApi } = require('../config/env');
+const { CustomException } = require('../utils/errorHandler');
 
 const CACHE_TTL = 60 * 60 * 24;
+const REPO_DEEP_STATS_TTL = 60 * 60 * 24;
 
 async function withCache(key, ttl, fetchFn, res = null) {
   try {
@@ -246,9 +248,115 @@ async function getAllPullRequestsInRange(accessToken, userId, from, to, res = nu
       });
 
       return all.sort(
-        (a, b) =>
-          new Date(b.mergedAt || b.createdAt) - new Date(a.mergedAt || a.createdAt)
+        (a, b) => new Date(b.mergedAt || b.createdAt) - new Date(a.mergedAt || a.createdAt)
       );
+    },
+    res
+  );
+}
+
+function repoDeepStatsCacheKey(userId, fullName) {
+  return `github:repoStats:${userId}:${fullName.replace(/\//g, '|')}`;
+}
+
+/**
+ * Single-repo deep stats (90d commits window for charts; PRs and languages are repo-wide lists).
+ * @param {string} accessToken
+ * @param {string} userId
+ * @param {string} repoShortName - short name (matches {@link getUserRepos} .name)
+ * @param {import('express').Response|null} [res]
+ */
+async function getRepoDeepStats(accessToken, userId, repoShortName, res = null) {
+  const repos = await getUserRepos(accessToken, userId, null);
+  const repo = repos.find((r) => r.name === repoShortName);
+  if (!repo) {
+    throw CustomException(`Repository "${repoShortName}" not found in your account`, 404);
+  }
+
+  const full = repo.fullName;
+  const cacheKey = repoDeepStatsCacheKey(userId, full);
+
+  return withCache(
+    cacheKey,
+    REPO_DEEP_STATS_TTL,
+    async () => {
+      const [{ data: repoMeta }, { data: langBytes }] = await Promise.all([
+        githubRequest(accessToken, `/repos/${full}`),
+        githubRequest(accessToken, `/repos/${full}/languages`),
+      ]);
+
+      const to = new Date().toISOString();
+      const from = new Date();
+      from.setUTCDate(from.getUTCDate() - 90);
+
+      const [commits, prs] = await Promise.all([
+        getCommitsByDateRange(accessToken, userId, full, from.toISOString(), to, null),
+        getPullRequests(accessToken, userId, full, 'all', null),
+      ]);
+
+      const byDate = {};
+      commits.forEach((c) => {
+        const d = c.date.split('T')[0];
+        byDate[d] = (byDate[d] || 0) + 1;
+      });
+      const commitsPerDay = Object.keys(byDate)
+        .sort((a, b) => a.localeCompare(b))
+        .map((date) => ({ date, count: byDate[date] }));
+
+      let contributors = 0;
+      let page = 1;
+      while (true) {
+        const { data } = await githubRequest(accessToken, `/repos/${full}/contributors`, {
+          per_page: 100,
+          page,
+        });
+        contributors += data.length;
+        if (data.length < 100) break;
+        page += 1;
+      }
+
+      const openPRs = prs.filter((p) => p.state === 'open').length;
+      const mergedPRs = prs.filter((p) => p.merged).length;
+
+      const languages = Object.entries(langBytes || {})
+        .map(([language, bytes]) => ({ language, bytes: Number(bytes) || 0 }))
+        .sort((a, b) => b.bytes - a.bytes);
+
+      const recentCommits = commits.slice(0, 25).map((c) => ({
+        message: (c.message || '').split('\n')[0].slice(0, 160),
+        author: c.author,
+        date: c.date,
+        sha: c.sha,
+        url: c.url,
+      }));
+
+      const prHistory = prs.slice(0, 30).map((p) => ({
+        number: p.number,
+        title: p.title,
+        state: p.state,
+        merged: p.merged,
+        createdAt: p.createdAt,
+        mergedAt: p.mergedAt,
+        url: p.url,
+      }));
+
+      return {
+        repoName: repo.name,
+        fullName: repo.fullName,
+        private: !!repoMeta.private,
+        description: repoMeta.description || null,
+        language: repoMeta.language,
+        stars: repoMeta.stargazers_count,
+        forks: repoMeta.forks_count,
+        totalCommits: commits.length,
+        contributors,
+        openPRs,
+        mergedPRs,
+        languages,
+        commitsPerDay,
+        recentCommits,
+        prHistory,
+      };
     },
     res
   );
@@ -287,6 +395,8 @@ async function invalidateUserCache(userId) {
     `github:prs:${userId}:*`,
     `github:languages:${userId}`,
     `github:streak:${userId}`,
+    `github:repoStats:${userId}:*`,
+    `stats:compare:${userId}:*`,
   ];
 
   let totalDeleted = 0;
@@ -320,6 +430,7 @@ module.exports = {
   getPullRequests,
   getAllPullRequestsInRange,
   getLanguageStats,
+  getRepoDeepStats,
   invalidateUserCache,
   invalidateCacheByType,
 };
