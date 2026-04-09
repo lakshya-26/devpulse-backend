@@ -21,6 +21,10 @@ function reposQuery(req, res, next) {
   return validateRequest(req, res, next, commitsQuerySchema, 'query');
 }
 
+function compareQuery(req, res, next) {
+  return validateRequest(req, res, next, commitsQuerySchema, 'query');
+}
+
 function contributionsQuery(req, res, next) {
   return validateRequest(req, res, next, contributionsQuerySchema, 'query');
 }
@@ -29,5 +33,6 @@ module.exports = {
   commitsQuery,
   prsQuery,
   reposQuery,
+  compareQuery,
   contributionsQuery,
 };

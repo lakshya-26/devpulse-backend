@@ -45,6 +45,13 @@ async function getRepos(req, res) {
   });
 }
 
+async function getCompare(req, res) {
+  return runController(req, res, {
+    run: () => statsService.getCompareStats(req.user.id, req.query.range, res),
+    message: 'Success',
+  });
+}
+
 module.exports = {
   getCommits,
   getLanguages,
@@ -53,4 +60,5 @@ module.exports = {
   refreshCache,
   getContributions,
   getRepos,
+  getCompare,
 };
