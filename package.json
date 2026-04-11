@@ -8,11 +8,11 @@
     "dev": "nodemon index.js",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.js\"",
-    "db:migrate": "sequelize-cli db:migrate",
-    "db:migrate:undo": "sequelize-cli db:migrate:undo",
-    "db:migrate:undo:all": "sequelize-cli db:migrate:undo:all",
-    "db:seed": "sequelize-cli db:seed:all",
-    "db:seed:undo": "sequelize-cli db:seed:undo:all"
+    "db:migrate": "node ./node_modules/sequelize-cli/lib/sequelize db:migrate",
+    "db:migrate:undo": "node ./node_modules/sequelize-cli/lib/sequelize db:migrate:undo",
+    "db:migrate:undo:all": "node ./node_modules/sequelize-cli/lib/sequelize db:migrate:undo:all",
+    "db:seed": "node ./node_modules/sequelize-cli/lib/sequelize db:seed:all",
+    "db:seed:undo": "node ./node_modules/sequelize-cli/lib/sequelize db:seed:undo:all"
   },
   "dependencies": {
     "axios": "^1.14.0",
@@ -28,6 +28,7 @@
     "pg": "^8.13.1",
     "pg-hstore": "^2.3.4",
     "sequelize": "^6.37.5",
+    "sequelize-cli": "^6.6.2",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -35,7 +36,6 @@
     "eslint": "^9.15.0",
     "globals": "^15.12.0",
     "nodemon": "^3.1.7",
-    "prettier": "^3.4.2",
-    "sequelize-cli": "^6.6.2"
+    "prettier": "^3.4.2"
   }
 }
